@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DTU Elective Recommendation System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Custom scrollbar for dark mode */
+        .modal-content::-webkit-scrollbar { width: 8px; }
+        .modal-content::-webkit-scrollbar-track { background: #2d3748; } /* gray-800 */
+        .modal-content::-webkit-scrollbar-thumb { background: #4a5568; border-radius: 4px; } /* gray-600 */
+        .modal-content::-webkit-scrollbar-thumb:hover { background: #718096; } /* gray-500 */
+        
+        /* Pulsing animation for the warning flag */
+        .trap-flag {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: .7; transform: scale(1.1); }
+        }
+        .card-glow:hover {
+            border-color: rgba(52, 211, 153, 0.4);
+            box-shadow: 0 0 15px rgba(52, 211, 153, 0.1);
+        }
+        .gemini-btn {
+            background-color: #2563eb;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background-color 0.3s;
+        }
+        .gemini-btn:hover {
+            background-color: #1d4ed8;
+        }
+        .gemini-btn:disabled {
+            background-color: #4b5563;
+            cursor: not-allowed;
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            margin: 1rem auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 antialiased">
+
+    <!-- Header -->
+    <header class="bg-gray-900/80 backdrop-blur-sm sticky top-0 z-20 border-b border-gray-800">
+        <div class="container mx-auto px-4 py-4">
+            <h1 class="text-2xl md:text-3xl font-bold text-white">Elective Recommendation System</h1>
+            <p class="text-gray-400 mt-1">Data-driven insights to find your perfect elective.</p>
+        </div>
+    </header>
+
+    <!-- Controls -->
+    <div class="container mx-auto px-4 py-6">
+        <div class="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <!-- Search Input -->
+                <div>
+                    <label for="search" class="block text-sm font-medium text-gray-400">Search Course or ID</label>
+                    <input type="text" id="search" placeholder="e.g., Sports, EVS, 13" class="mt-1 block w-full bg-gray-700 border-gray-600 text-white rounded-md shadow-sm focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 sm:text-sm">
+                </div>
+                <!-- Filter by Goal -->
+                <div>
+                    <label for="filter-goal" class="block text-sm font-medium text-gray-400">Filter by Goal</label>
+                    <select id="filter-goal" class="mt-1 block w-full bg-gray-700 border-gray-600 text-white rounded-md shadow-sm focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 sm:text-sm">
+                        <option value="all">All Goals</option>
+                        <option value="no_exam">No Written Exams</option>
+                        <option value="trap_courses">Show "Trap" Courses 🚩</option>
+                    </select>
+                </div>
+                <!-- Sort by -->
+                <div>
+                    <label for="sort-by" class="block text-sm font-medium text-gray-400">Sort By</label>
+                    <select id="sort-by" class="mt-1 block w-full bg-gray-700 border-gray-600 text-white rounded-md shadow-sm focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 sm:text-sm">
+                        <option value="rating_desc">Rating: High to Low</option>
+                        <option value="chill_desc">Chill Score: High to Low</option>
+                        <option value="reviews_desc">Most Reviewed</option>
+                        <option value="rating_asc">Rating: Low to High</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Course Grid -->
+    <main class="container mx-auto px-4 pb-10">
+        <div id="course-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <!-- Course cards will be injected here by JavaScript -->
+        </div>
+        <div id="no-results" class="hidden text-center py-10">
+            <h3 class="text-xl font-semibold text-gray-300">No courses match your criteria.</h3>
+            <p class="text-gray-500 mt-2">Try adjusting your search or filters.</p>
+        </div>
+    </main>
+    
+    <!-- Modal for Detailed Reviews -->
+    <div id="modal" class="fixed inset-0 bg-black bg-opacity-70 backdrop-blur-sm overflow-y-auto h-full w-full z-30 hidden">
+        <div class="relative top-10 mx-auto p-1 border w-full max-w-3xl shadow-lg rounded-xl bg-gradient-to-br from-gray-800 to-gray-900 border-gray-700">
+            <div class="bg-gray-800/80 rounded-lg p-5">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h3 id="modal-title" class="text-2xl font-bold text-white"></h3>
+                        <p id="modal-subtitle" class="text-sm text-gray-400"></p>
+                    </div>
+                    <button id="close-modal" class="text-gray-400 hover:text-white transition-colors">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+                
+                <!-- Gemini API Features -->
+                <div class="my-4 p-4 bg-gray-700/50 border border-gray-600 rounded-lg">
+                    <h4 class="text-lg font-bold text-white mb-3">✨ Gemini AI Tools</h4>
+                    <div class="flex flex-col sm:flex-row gap-3">
+                        <button id="gemini-summary-btn" class="gemini-btn flex-1">AI Course Summary</button>
+                        <button id="gemini-study-plan-btn" class="gemini-btn flex-1">Generate Study Plan</button>
+                    </div>
+                    <div id="gemini-output" class="mt-4 text-gray-300"></div>
+                </div>
+
+                <div id="modal-content" class="mt-4 max-h-[60vh] overflow-y-auto pr-2 modal-content">
+                    <!-- Detailed reviews will be injected here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+        let courseData = [];
+        let currentCourse = null;
+
+        // --- DOM Elements ---
+        const courseGrid = document.getElementById('course-grid');
+        const noResults = document.getElementById('no-results');
+        const searchInput = document.getElementById('search');
+        const goalFilter = document.getElementById('filter-goal');
+        const sortBy = document.getElementById('sort-by');
+        const modal = document.getElementById('modal');
+        const closeModalBtn = document.getElementById('close-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const modalSubtitle = document.getElementById('modal-subtitle');
+        const modalContent = document.getElementById('modal-content');
+        const geminiSummaryBtn = document.getElementById('gemini-summary-btn');
+        const geminiStudyPlanBtn = document.getElementById('gemini-study-plan-btn');
+        const geminiOutput = document.getElementById('gemini-output');
+
+        // --- Gemini API Function ---
+        async function callGeminiAPI(prompt, outputElement) {
+            outputElement.innerHTML = '<div class="loader"></div>';
+            geminiSummaryBtn.disabled = true;
+            geminiStudyPlanBtn.disabled = true;
+
+            const apiKey = ""; // Will be provided at runtime
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+            
+            const payload = {
+                contents: [{
+                    parts: [{ text: prompt }]
+                }]
+            };
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`API request failed with status ${response.status}`);
+                }
+
+                const result = await response.json();
+                
+                if (result.candidates && result.candidates.length > 0 &&
+                    result.candidates[0].content && result.candidates[0].content.parts &&
+                    result.candidates[0].content.parts.length > 0) {
+                    let text = result.candidates[0].content.parts[0].text;
+                    // Basic formatting for the output
+                    text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>'); // Bold
+                    text = text.replace(/\*/g, '<br>• '); // Bullets
+                    outputElement.innerHTML = `<div class="p-3 bg-gray-800 rounded-md">${text}</div>`;
+                } else {
+                    throw new Error("Invalid response structure from API.");
+                }
+
+            } catch (error) {
+                console.error("Gemini API Error:", error);
+                outputElement.innerHTML = `<div class="p-3 bg-red-900/50 text-red-300 rounded-md">Sorry, an error occurred while generating the response.</div>`;
+            } finally {
+                geminiSummaryBtn.disabled = false;
+                geminiStudyPlanBtn.disabled = false;
+            }
+        }
+
+        // --- Core Functions ---
+        
+        async function loadData() {
+            try {
+                const response = await fetch('courses_advanced.json');
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                courseData = await response.json();
+                filterAndRender();
+            } catch (error) {
+                console.error("Could not load course data:", error);
+                courseGrid.innerHTML = `<div class="col-span-full text-center bg-red-900/50 border border-red-500/30 text-red-300 p-4 rounded-lg">
+                    <h3 class="font-bold">Error Loading Data</h3>
+                    <p>Could not load <code>courses_advanced.json</code>. Make sure the file exists and is in the same directory.</p>
+                </div>`;
+            }
+        }
+
+        function renderCourses(courses) {
+            courseGrid.innerHTML = '';
+            if (courses.length === 0) {
+                noResults.classList.remove('hidden');
+                return;
+            }
+            noResults.classList.add('hidden');
+
+            courses.forEach(course => {
+                const card = document.createElement('div');
+                const uniqueId = `${course.type}-${course.id}`;
+                card.className = 'bg-gray-800/50 border border-gray-700 rounded-xl overflow-hidden transition-all duration-300 hover:-translate-y-1 cursor-pointer card-glow';
+                card.dataset.courseId = uniqueId;
+
+                const trapFlagHTML = course.is_trap_course ? `<span class="text-2xl trap-flag" title="Warning: Low ratings and negative reviews">🚩</span>` : '';
+                
+                card.innerHTML = `
+                    <div class="p-5">
+                        <div class="flex justify-between items-start">
+                             <div>
+                                <p class="text-sm text-emerald-400 font-semibold">${course.type} ${course.id}</p>
+                                <h2 class="text-xl font-bold mt-1 text-white flex items-center gap-2">${course.name} ${trapFlagHTML}</h2>
+                            </div>
+                            <div class="text-right flex-shrink-0 ml-2">
+                                <p class="text-2xl font-bold text-white">${course.avg_rating.toFixed(1)}<span class="text-sm font-medium text-gray-400">/10</span></p>
+                                <p class="text-xs text-gray-500">${course.review_count} reviews</p>
+                            </div>
+                        </div>
+                        <div class="mt-4 flex items-center justify-between bg-gray-900/50 p-2 rounded-md">
+                            <span class="text-sm font-medium text-gray-300">Chill Score:</span>
+                            <div class="flex items-center gap-2">
+                                <div class="w-32 bg-gray-700 rounded-full h-2.5">
+                                    <div class="bg-gradient-to-r from-emerald-400 to-purple-500 h-2.5 rounded-full" style="width: ${course.chill_score * 10}%"></div>
+                                </div>
+                                <span class="font-bold text-emerald-400">${course.chill_score.toFixed(1)}</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                card.addEventListener('click', () => openModal(uniqueId));
+                courseGrid.appendChild(card);
+            });
+        }
+
+        function filterAndRender() {
+            let filteredCourses = [...courseData];
+            const searchTerm = searchInput.value.toLowerCase();
+            const selectedGoal = goalFilter.value;
+            const sortOption = sortBy.value;
+
+            if (searchTerm) {
+                filteredCourses = filteredCourses.filter(c => 
+                    c.name.toLowerCase().includes(searchTerm) || 
+                    c.id.toString().includes(searchTerm)
+                );
+            }
+
+            if (selectedGoal === 'trap_courses') {
+                filteredCourses = filteredCourses.filter(c => c.is_trap_course);
+            } else if (selectedGoal === 'no_exam') {
+                filteredCourses = filteredCourses.filter(c => {
+                    const name = c.name.toLowerCase();
+                    const reviewsText = JSON.stringify(c.teachers).toLowerCase();
+                    return name.includes('sports') || name.includes('public speaking') || name.includes('extension') || reviewsText.includes('no exam') || reviewsText.includes('no paper') || reviewsText.includes('presentation');
+                });
+            }
+
+            switch (sortOption) {
+                case 'rating_asc': filteredCourses.sort((a, b) => a.avg_rating - b.avg_rating); break;
+                case 'chill_desc': filteredCourses.sort((a, b) => b.chill_score - a.chill_score); break;
+                case 'reviews_desc': filteredCourses.sort((a, b) => b.review_count - a.review_count); break;
+                case 'rating_desc': default: filteredCourses.sort((a, b) => b.avg_rating - a.avg_rating); break;
+            }
+
+            renderCourses(filteredCourses);
+        }
+
+        function openModal(courseId) {
+            currentCourse = courseData.find(c => `${c.type}-${c.id}` === courseId);
+            if (!currentCourse) return;
+
+            modalTitle.textContent = currentCourse.name;
+            modalSubtitle.textContent = `${currentCourse.type} ${currentCourse.id} - Overall Avg: ${currentCourse.avg_rating.toFixed(1)}/10`;
+            geminiOutput.innerHTML = ''; // Clear previous Gemini output
+            
+            let contentHTML = '';
+            
+            if (currentCourse.is_trap_course) {
+                contentHTML += `<div class="bg-red-900/50 border border-red-500/30 text-red-300 p-4 mb-4 rounded-lg" role="alert">
+                    <p class="font-bold">🚩 Student Warning</p>
+                    <p>This course has received significantly low ratings and negative feedback. Proceed with caution.</p>
+                </div>`;
+            }
+
+            const sortedTeachers = Object.entries(currentCourse.teachers).sort(([, a], [, b]) => b.avg_rating - a.avg_rating);
+
+            for (const [teacher, data] of sortedTeachers) {
+                contentHTML += `
+                    <div class="mb-6">
+                        <div class="bg-gray-700/50 p-3 rounded-t-lg border-b-2 border-gray-600">
+                            <h4 class="text-lg font-bold text-white">${teacher}</h4>
+                            <p class="text-sm font-medium text-gray-400">Teacher Avg: <span class="font-bold text-emerald-400">${data.avg_rating.toFixed(1)}/10</span> from ${data.reviews.length} review(s)</p>
+                        </div>
+                        <div class="border border-t-0 border-gray-700 rounded-b-lg p-3">
+                `;
+                data.reviews.forEach(review => {
+                    contentHTML += `
+                        <div class="border-b border-gray-700 py-3 last:border-b-0">
+                            <p class="font-semibold text-gray-200 mb-1">Rating: <span class="text-emerald-400 font-bold">${review.rating}/10</span></p>
+                            <blockquote class="text-gray-300 italic border-l-4 border-gray-500 pl-3 my-1">
+                                ${review.review || 'No review text.'}
+                            </blockquote>
+                            <p class="text-xs text-gray-500 mt-2"><b>Study Time:</b> ${review.study_time || 'N/A'}</p>
+                        </div>
+                    `;
+                });
+                contentHTML += `</div></div>`;
+            }
+
+            modalContent.innerHTML = contentHTML;
+            modal.classList.remove('hidden');
+        }
+
+        // --- Event Listeners ---
+        searchInput.addEventListener('input', filterAndRender);
+        goalFilter.addEventListener('change', filterAndRender);
+        sortBy.addEventListener('change', filterAndRender);
+        
+        closeModalBtn.addEventListener('click', () => modal.classList.add('hidden'));
+        modal.addEventListener('click', (e) => {
+            if (e.target.id === 'modal') {
+                modal.classList.add('hidden');
+            }
+        });
+
+        geminiSummaryBtn.addEventListener('click', () => {
+            if (!currentCourse) return;
+            const allReviewsText = Object.values(currentCourse.teachers).flatMap(t => t.reviews).map(r => r.review).join('\n');
+            const prompt = `Summarize the following student reviews for the course "${currentCourse.name}" into a single, easy-to-read paragraph. Highlight the main pros and cons, such as the difficulty, attendance policy, and whether exams are held. The reviews are:\n\n${allReviewsText}`;
+            callGeminiAPI(prompt, geminiOutput);
+        });
+
+        geminiStudyPlanBtn.addEventListener('click', () => {
+            if (!currentCourse) return;
+            const allReviewsText = Object.values(currentCourse.teachers).flatMap(t => t.reviews).map(r => `Review: "${r.review}" Study Time Mentioned: "${r.study_time}"`).join('\n');
+            const prompt = `Based on these student reviews for the course "${currentCourse.name}", create a short, actionable, bullet-point study plan for a student who wants to get a good grade. Focus on what students say is important for scoring well. The reviews are:\n\n${allReviewsText}`;
+            callGeminiAPI(prompt, geminiOutput);
+        });
+
+        // --- Initial Load ---
+        loadData();
+
+    </script>
+    <a href="http://geeksforgeeks.org/" target="_blank">GeeksforGeeks</a>
+</body>
+</html>
